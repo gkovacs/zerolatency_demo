@@ -68,6 +68,14 @@ function make_tokenizer_funcs(tokenizer_en_def) {
           output.push(tokenizer_en_def.model.vocab[cur_text])
           cur_pos += token_length
           break
+        } else if (tokenizer_en_def.model.vocab[cur_text.replace(' ', '▁')] != undefined) {
+          output.push(tokenizer_en_def.model.vocab[cur_text.replace(' ', '▁')])
+          cur_pos += token_length
+          break
+        } else if (tokenizer_en_def.model.vocab['▁' + cur_text] != undefined) {
+          output.push(tokenizer_en_def.model.vocab['▁' + cur_text])
+          cur_pos += token_length
+          break
         }
         //console.log(cur_text)
       }
@@ -82,8 +90,17 @@ function make_tokenizer_funcs(tokenizer_en_def) {
   
   function ids_to_text(token_id_list) {
     var output = []
-    for (var x of token_id_list) {
-      output.push(id_to_vocab[x])
+    for (var i = 0; i < token_id_list.length; ++i) {
+      var token_id = token_id_list[i];
+      var token = id_to_vocab[token_id];
+      if (token[0] === '▁') {
+        if (i === 0) {
+          token = token.substr(1)
+        } else {
+          token = ' ' + token.substr(1)
+        }
+      }
+      output.push(token)
     }
     return output.join('');
   }
@@ -187,6 +204,10 @@ async function evaluate(inp_sentence, prefix, enc_output) {
 var cached_encoder_outputs = {}
 
 async function translate(text, prefix) {
+  if (text[0] != ' ') {
+    text = ' ' + text
+  }
+  prefix = prefix.trim();
   var enc_output = cached_encoder_outputs[text]
   if (enc_output === undefined) {
     enc_output = await precompute_encoder_output(text);
@@ -342,7 +363,6 @@ function showCompletionHotkeys() {
 
 async function main() {
   await loadTransformerLayersModel();
-  return
   //document.querySelector('#srctxt').onkeyup = update_shown_translation;
   //document.querySelector('#prefix').onkeyup = update_shown_translation;
   document.querySelector('#prefix').onkeydown = function(evt) {
