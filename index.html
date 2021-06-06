@@ -1,16 +1,27 @@
 <html>
+  
+<link rel="stylesheet" type="text/css" href="tippy.css" media="screen"/>
+
+
 <body>
 <br>
 
 <input type="text" id="srctxt" style="width: 800px">
 
-<br>
+<br><br>
+
+<div id="alternatives"></div>
+
+<br><br>
 
 <input type="text" id="prefix" style="width: 800px">
 
+<br><br>
+
 <div id="suggestion"></div>
 
-<br>
+<br><br>
+
 
 <div id="output"></div>
 
@@ -26,10 +37,15 @@ este é o primeiro livro que eu fiz.
 <br>
 
 <script src="tf.min.js"></script>
+<script src="tfjs-backend-wasm.js"></script>
 <!-- <script src="tfjs-backend-webgl.js"></script> -->
 <script src="evaluate_cache.js"></script>
 <script src="tokenizer_en.js"></script>
 <script src="tokenizer_pt.js"></script>
+
+<script src="popper.min.js"></script>
+<script src="tippy-bundle.umd.min.js"></script>
+
 <script src="index.js"></script>
 
 </body>

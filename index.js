@@ -88,6 +88,23 @@ function make_tokenizer_funcs(tokenizer_en_def) {
     id_to_vocab[v] = k
   }
   
+  function ids_to_text_list(token_id_list) {
+    var output = []
+    for (var i = 0; i < token_id_list.length; ++i) {
+      var token_id = token_id_list[i];
+      var token = id_to_vocab[token_id];
+      if (token[0] === '▁') {
+        if (i === 0) {
+          token = token.substr(1)
+        } else {
+          token = ' ' + token.substr(1)
+        }
+      }
+      output.push(token)
+    }
+    return output
+  }
+  
   function ids_to_text(token_id_list) {
     var output = []
     for (var i = 0; i < token_id_list.length; ++i) {
@@ -110,6 +127,7 @@ function make_tokenizer_funcs(tokenizer_en_def) {
   return {
     'text_to_ids': text_to_ids,
     'ids_to_text': ids_to_text,
+    'ids_to_text_list': ids_to_text_list,
     'vocab_size': vocab_size,
   }
 }
@@ -167,12 +185,18 @@ async function evaluate(inp_sentence, prefix, enc_output) {
   var encoder_input = tf.expandDims(inp_sentence, 0);
   var decoder_input = tf.tensor([tok_en.vocab_size], undefined, 'int32');
   var output = tf.expandDims(decoder_input, 0);
+  //var top_predictions_list = tf.expandDims(tf.expandDims(decoder_input, 0), 0);
+  //console.log('top_predictions_list is')
+  //top_predictions_list.print()
+  console.log('output dimensions are')
+  output.print()
   var dec_padding_mask = create_padding_mask(encoder_input);
   var prefix_ids = [];
   var prefix_tokens = tok_en.text_to_ids(prefix);
   for (var token_id of prefix_tokens) {
     prefix_ids.push(token_id);
   }
+  var top_predictions = null;
   for (var i = 0; i < MAX_LENGTH; ++i) {
     var combined_mask = create_combined_mask(output);
     // decoder([output, enc_output, tf.constant(False, dtype=tf.bool), combined_mask, dec_padding_mask])
@@ -189,25 +213,47 @@ async function evaluate(inp_sentence, prefix, enc_output) {
     });
     predictions = predictions.slice([0, predictions.shape[1] - 1, 0], [predictions.shape[0], -1, -1]);
     predicted_id = tf.cast(tf.argMax(predictions, -1), 'int32');
+    //console.log('predicted_id is')
+    //predicted_id.print()
+    //console.log('top 2 predicted ids are:')
+    //top_predictions.print()
+    //top_predictions_list = tf.concat([top_predictions_list, top_predictions]);
+    //console.log('top predictions list is:')
+    //top_predictions_list.print();
     if (i < prefix_ids.length) {
       predicted_id = tf.tensor(prefix_ids[i], [1,1], 'int32');
+    } else if (i === prefix_ids.length) {
+      top_predictions = predictions.topk(1000, true).indices;
     }
     var predicted_id_num = predicted_id.dataSync()[0]
     if (predicted_id_num == tok_en.vocab_size+1) {
-      return tf.squeeze(output, 0);
+      console.log('output pre-squeeze 1 is:')
+      output.print()
+      return [tf.squeeze(output, 0), top_predictions];
     }
     output = tf.concat([output, predicted_id], -1);
   }
-  return tf.squeeze(output, 0);
+  console.log('output pre-squeeze 2 is:')
+  output.print()
+  return [tf.squeeze(output, 0), top_predictions];
 }
 
 var cached_encoder_outputs = {}
+
+var cached_translate_results = {}
 
 async function translate(text, prefix) {
   if (text[0] != ' ') {
     text = ' ' + text
   }
   prefix = prefix.trim();
+  if (cached_translate_results[text] !== undefined) {
+    if (cached_translate_results[text][prefix] !== undefined) {
+      return cached_translate_results[text][prefix]
+    }
+  } else {
+    cached_translate_results[text] = {}
+  }
   var enc_output = cached_encoder_outputs[text]
   if (enc_output === undefined) {
     enc_output = await precompute_encoder_output(text);
@@ -215,9 +261,16 @@ async function translate(text, prefix) {
   }
   //console.log('enc_output is:');
   //enc_output.print()
-  var decoded_tokens = await evaluate(text, prefix, enc_output);
+  var [decoded_tokens, top_predictions] = await evaluate(text, prefix, enc_output);
   //console.log('decoded tokens returnd')
   //console.log(decoded_tokens)
+  var top_predictions_ids = [];
+  top_predictions.dataSync().forEach((x) => {
+    if (x < tok_en.vocab_size) {
+      top_predictions_ids.push(x);
+    }
+  })
+  var top_predictions_text = tok_en.ids_to_text_list(top_predictions_ids);
   var tokens_list = [];
   decoded_tokens.dataSync().forEach((x) => {
     if (x < tok_en.vocab_size) {
@@ -227,7 +280,9 @@ async function translate(text, prefix) {
   var out_text = tok_en.ids_to_text(tokens_list);
   //console.log(tokens_list);
   //console.log(out_text);
-  return out_text
+  var output = [out_text, top_predictions_text]
+  cached_translate_results[text][prefix] = output;
+  return output;
 }
 
 // async function update_shown_translation() {
@@ -249,6 +304,28 @@ function setHoveredIdx(idx) {
   }
 }
 
+function set_alternatives_list(prefix_so_far) {
+  document.querySelector('#alternatives').innerText = '';
+  var num_candidates_shown = 0;
+  for (var alternative_text of window.alternatives_list) {
+    alternative_text = alternative_text.trim();
+    if (!alternative_text.startsWith(prefix_so_far)) {
+      continue;
+    }
+    var word_block = document.createElement('span')
+    word_block.innerText = alternative_text + ' ';
+    word_block.setAttribute('stext', alternatives_list);
+    if (num_candidates_shown === 0) {
+      word_block.style.backgroundColor = 'lightblue';
+    }
+    document.querySelector('#alternatives').append(word_block);
+    num_candidates_shown += 1;
+    if (num_candidates_shown >= 5) {
+      break;
+    }
+  }
+}
+
 async function update_translations() {
   var prev_newsrc = null;
   var prev_prefix = null;
@@ -261,12 +338,24 @@ async function update_translations() {
     if (newsrc === prev_newsrc && prefix === prev_prefix) {
       continue
     }
-    if (!(prefix.endsWith(' ') || prefix === '')) {
-      continue
-    }
     prev_newsrc = newsrc
     prev_prefix = prefix
-    var translation = await translate(newsrc, prefix);
+    //if (prefix !== '' && !(prefix.endsWith(' '))) {
+    //  var word_typed_so_far = prefix.substr(prefix.lastIndexOf(' ') + 1);
+    //  set_alternatives_list(word_typed_so_far);
+    //  continue
+    //}
+    var partial_word = '';
+    var prefix_to_translate = '';
+    if (prefix.endsWith(' ')) {
+      partial_word = ''
+    } else {
+      partial_word = prefix.substr(prefix.lastIndexOf(' ') + 1);
+      prefix = prefix.substr(0, prefix.lastIndexOf(' ') + 1);
+    }
+    var [translation, alternatives_list] = await translate(newsrc, prefix);
+    window.alternatives_list = alternatives_list;
+    set_alternatives_list(partial_word);
     document.querySelector('#suggestion').innerText = '';
     var translation_before = prefix;
     var word_block = document.createElement('span')
@@ -281,6 +370,7 @@ async function update_translations() {
       var word_block = document.createElement('span');
       word_block.setAttribute('display', 'inline-block')
       word_block.setAttribute('idx', i);
+      word_block.className = 'suggestion'
       word_block.setAttribute('id', 'suggestion_' + i);
       word_block.setAttribute('stext', word);
       word_block.innerText = word + ' ';
@@ -333,7 +423,10 @@ function hideCompletionHotkeys() {
   for (var i = 0; i < window.translation_after_words.length; ++i) {
     //var is_highlighted = i <= idx;
     var word_block = document.querySelector('#suggestion_' + i);
-    word_block.innerHTML = word_block.getAttribute('stext') + ' ';
+    if (word_block._tippy) {
+      word_block._tippy.unmount();
+    }
+    //word_block.innerHTML = word_block.getAttribute('stext') + ' ';
     // var child_block = document.createElement('div');
     // child_block.innerText = i;
     // child_block.style.position = 'relative';
@@ -347,12 +440,13 @@ function showCompletionHotkeys() {
   window.hotkey_to_idx = {}
   for (var i = 0; i < window.translation_after_words.length; ++i) {
     //var is_highlighted = i <= idx;
-    var hotkey = 'ABCDFEGHIJKLMNOPQRSTUVWXYZ'[i];
+    var hotkey = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'[i];
     var word_block = document.querySelector('#suggestion_' + i);
+    tippy('#suggestion_' + i, {content: hotkey, arrow: true})[0].show()
     //word_block.setAttribute('hotkey_' + hotkey, true);
     hotkey_list.push(hotkey)
     hotkey_to_idx[hotkey] = i;
-    word_block.innerHTML = '<span style="background-color: yellow">' + hotkey + '</span>' + word_block.getAttribute('stext') + ' ';
+    //word_block.innerHTML = '<span style="background-color: yellow">' + hotkey + '</span>' + word_block.getAttribute('stext') + ' ';
     // var child_block = document.createElement('div');
     // child_block.innerText = i;
     // child_block.style.position = 'relative';
@@ -362,6 +456,8 @@ function showCompletionHotkeys() {
 }
 
 async function main() {
+  //await tf.setBackend('wasm');
+  await tf.setBackend('webgl')
   await loadTransformerLayersModel();
   //document.querySelector('#srctxt').onkeyup = update_shown_translation;
   //document.querySelector('#prefix').onkeyup = update_shown_translation;
@@ -384,11 +480,11 @@ async function main() {
     if (window.completion_hotkeys_shown) {
       var hotkey = evt.key.toUpperCase();
       var idx = window.hotkey_to_idx[hotkey]
+      hideCompletionHotkeys();
       if (idx !== undefined) {
         console.log('evt.key is: ' + evt.key + ' and idx is ' + idx)
         //var word_block = document.querySelector('#suggestion_' + idx);
         //var idx = word_block.getAttribute('idx');
-        hideCompletionHotkeys();
         completeWordsUntil(idx);
         evt.preventDefault();
         return;
