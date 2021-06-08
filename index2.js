@@ -62,7 +62,11 @@ async function update_translations() {
       setTimeout(resolve, 100);
     })
     var newsrc = document.querySelector('#srctxt').value
-    var prefix = document.querySelector('#prefix').value
+    var text_full = document.querySelector('#prefix').value
+    var prefix_end_idx = document.querySelector('#prefix').selectionStart;
+    var text_typed_after_cursor_words = text_full.substr(prefix_end_idx).split(' ').filter(x => x.length > 0);
+    window.text_typed_after_cursor_words = text_typed_after_cursor_words;
+    var prefix = text_full.substr(0, prefix_end_idx);
     if (newsrc === prev_newsrc && prefix === prev_prefix) {
       continue
     }
@@ -88,48 +92,99 @@ async function update_translations() {
     var translation_before = prefix;
     var word_block = document.createElement('span')
     word_block.innerText = translation_before
-    word_block.style.color = 'grey'
+    word_block.style.color = 'white'
     document.querySelector('#suggestion').append(word_block)
     var translation_after = translation.substr(prefix.length)
     var translation_after_words = translation_after.split(' ')
     window.translation_after_words = translation_after_words
-    for (var i = 0; i < translation_after_words.length; ++i) {
-      var word = translation_after_words[i];
-      var word_block = document.createElement('span');
-      word_block.setAttribute('display', 'inline-block')
-      word_block.setAttribute('idx', i);
-      word_block.className = 'suggestion'
-      word_block.setAttribute('id', 'suggestion_' + i);
-      word_block.setAttribute('stext', word);
-      word_block.innerText = word + ' ';
-      if (i === 0) {
-        word_block.style.backgroundColor = 'lightblue';
+    //var prefix_within_output = 0;
+    var diff_list = compute_diff_for_arrays(text_typed_after_cursor_words, translation_after_words)
+    var i = 0;
+    for (var [diff_type, word_list] of diff_list) {
+      if (diff_type == -1) {
+        // deletion in diff
+        continue;
       }
-      (function(i) {
-        word_block.onmouseover = function() {
-          console.log('word ' + i + ' is being responded to');
-          setHoveredIdx(i);
+      for (var word of word_list) {
+        var word_block = document.createElement('span');
+        word_block.setAttribute('display', 'inline-block')
+        word_block.setAttribute('idx', i);
+        word_block.className = 'suggestion'
+        word_block.setAttribute('id', 'suggestion_' + i);
+        word_block.setAttribute('stext', word);
+        word_block.innerText = word + ' ';
+        //if (i === 0) {
+        //  word_block.style.backgroundColor = 'lightblue';
+        //}
+        if (diff_type === 1) {
+          word_block.style.backgroundColor = 'lightgreen';
+        } else {
+          word_block.style.color = 'grey';
         }
-        word_block.onmouseleave = function() {
-          setHoveredIdx(0);
-        }
-        word_block.onmousedown = function(evt) {
-          console.log('word ' + i + ' was clicked on');
-          completeWordsUntil(i);
-          document.querySelector('#prefix').focus()
-          evt.preventDefault();
-        }
-      })(i);
-      document.querySelector('#suggestion').append(word_block)
-      
+        (function(i) {
+          word_block.onmouseover = function() {
+            console.log('word ' + i + ' is being responded to');
+            //setHoveredIdx(i);
+          }
+          word_block.onmouseleave = function() {
+            //setHoveredIdx(0);
+          }
+          word_block.onmousedown = function(evt) {
+            console.log('word ' + i + ' was clicked on');
+            completeWordsUntil(i);
+            document.querySelector('#prefix').focus()
+            evt.preventDefault();
+          }
+        })(i);
+        document.querySelector('#suggestion').append(word_block)
+        i += 1;
+      }
     }
+    // for (var i = 0; i < translation_after_words.length; ++i) {
+    //   var word = translation_after_words[i];
+    //   //var is_before_cursor = prefix_within_output < prefix_end_idx;
+    //   //prefix_within_output += word.length;
+    //   var word_block = document.createElement('span');
+    //   word_block.setAttribute('display', 'inline-block')
+    //   word_block.setAttribute('idx', i);
+    //   word_block.className = 'suggestion'
+    //   word_block.setAttribute('id', 'suggestion_' + i);
+    //   word_block.setAttribute('stext', word);
+    //   word_block.innerText = word + ' ';
+    //   if (i === 0) {
+    //     word_block.style.backgroundColor = 'lightblue';
+    //   }
+    //   (function(i) {
+    //     word_block.onmouseover = function() {
+    //       console.log('word ' + i + ' is being responded to');
+    //       setHoveredIdx(i);
+    //     }
+    //     word_block.onmouseleave = function() {
+    //       setHoveredIdx(0);
+    //     }
+    //     word_block.onmousedown = function(evt) {
+    //       console.log('word ' + i + ' was clicked on');
+    //       completeWordsUntil(i);
+    //       document.querySelector('#prefix').focus()
+    //       evt.preventDefault();
+    //     }
+    //   })(i);
+    //   document.querySelector('#suggestion').append(word_block)
+      
+    // }
   }
 }
 
 function completeWordsUntil(idx) {
   var words_to_complete = window.translation_after_words.slice(0, idx + 1);
   var text_to_complete = words_to_complete.join(' ');
-  document.querySelector('#prefix').value += text_to_complete + ' ';
+  var prefix_end_idx = document.querySelector('#prefix').selectionStart;
+  var old_text = document.querySelector('#prefix').value;
+  var part_before = old_text.substr(0, prefix_end_idx);
+  var part_after = old_text.substr(prefix_end_idx);
+  document.querySelector('#prefix').value = part_before + text_to_complete + ' ' + part_after;
+  document.querySelector('#prefix').selectionStart = prefix_end_idx + text_to_complete.length + 1;
+  document.querySelector('#prefix').selectionEnd = prefix_end_idx + text_to_complete.length + 1;
 
 }
 
@@ -137,51 +192,21 @@ function completeWordsUntil(idx) {
 //   update_shown_translation();
 // }, 1000);
 
-function toggleCompletionHotkeys() {
-  if (window.completion_hotkeys_shown ) {
-    hideCompletionHotkeys();
-    
-  } else {
-    showCompletionHotkeys();
-    window.completion_hotkeys_shown = true;
-  }
-}
+// function cursorPositionChanged(index_in_output) {
+//   var newsrc = document.querySelector('#srctxt').value;
+//   var full_text = document.querySelector('#prefix').value;
+//   var prefix = full_text.substr(0, index_in_output);
+//   console.log('prefix is')
+//   console.log(prefix)
+//   console.log('full text is')
+//   console.log(full_text)
+//   console.log('newsrc is')
+//   console.log(newsrc)
+// }
 
-function hideCompletionHotkeys() {
-  for (var i = 0; i < window.translation_after_words.length; ++i) {
-    //var is_highlighted = i <= idx;
-    var word_block = document.querySelector('#suggestion_' + i);
-    if (word_block._tippy) {
-      word_block._tippy.unmount();
-    }
-    //word_block.innerHTML = word_block.getAttribute('stext') + ' ';
-    // var child_block = document.createElement('div');
-    // child_block.innerText = i;
-    // child_block.style.position = 'relative';
-    // word_block.append(child_block);
-  }
-  window.completion_hotkeys_shown = false;
-}
-
-function showCompletionHotkeys() {
-  window.hotkey_list = []
-  window.hotkey_to_idx = {}
-  for (var i = 0; i < window.translation_after_words.length; ++i) {
-    //var is_highlighted = i <= idx;
-    var hotkey = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'[i];
-    var word_block = document.querySelector('#suggestion_' + i);
-    tippy('#suggestion_' + i, {content: hotkey, arrow: true})[0].show()
-    //word_block.setAttribute('hotkey_' + hotkey, true);
-    hotkey_list.push(hotkey)
-    hotkey_to_idx[hotkey] = i;
-    //word_block.innerHTML = '<span style="background-color: yellow">' + hotkey + '</span>' + word_block.getAttribute('stext') + ' ';
-    // var child_block = document.createElement('div');
-    // child_block.innerText = i;
-    // child_block.style.position = 'relative';
-    // word_block.append(child_block);
-  }
-  window.completion_hotkeys_shown = true;
-}
+// function cursorPositionChangedHandler(evt) {
+//   cursorPositionChanged(evt.target.selectionStart)
+// }
 
 async function main() {
   //await tf.setBackend('wasm');
@@ -189,7 +214,10 @@ async function main() {
   await loadTransformerLayersModel();
   //document.querySelector('#srctxt').onkeyup = update_shown_translation;
   //document.querySelector('#prefix').onkeyup = update_shown_translation;
-  document.querySelector('#prefix').onkeydown = function(evt) {
+  //document.querySelector('#prefix').addEventListener('focus', positionChanged);
+  //document.querySelector('#prefix').addEventListener('click', cursorPositionChangedHandler);
+  //document.querySelector('#prefix').addEventListener('keydown', cursorPositionChangedHandler);
+  document.querySelector('#prefix').addEventListener('keydown', function(evt) {
     if (evt.which === 13) {
       // enter
       completeWordsUntil(0);
@@ -218,7 +246,7 @@ async function main() {
         return;
       }
     }
-  }
+  });
   document.querySelector('#srctxt').value = 'este é um problema que temos que resolver.'
   //update_shown_translation()
   update_translations()
