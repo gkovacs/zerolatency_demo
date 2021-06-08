@@ -64,7 +64,12 @@ async function update_translations() {
     var newsrc = document.querySelector('#srctxt').value
     var text_full = document.querySelector('#prefix').value
     var prefix_end_idx = document.querySelector('#prefix').selectionStart;
-    var text_typed_after_cursor_words = text_full.substr(prefix_end_idx).split(' ').filter(x => x.length > 0);
+    var space_index_before_prefix = text_full.lastIndexOf(' ', prefix_end_idx - 1);
+    var text_typed_after_cursor = ''
+    //if (space_index_before_prefix !== -1) {
+      text_typed_after_cursor = text_full.substr(space_index_before_prefix + 1);
+    //}
+    var text_typed_after_cursor_words = text_typed_after_cursor.split(' ').filter(x => x.length > 0);
     window.text_typed_after_cursor_words = text_typed_after_cursor_words;
     var prefix = text_full.substr(0, prefix_end_idx);
     if (newsrc === prev_newsrc && prefix === prev_prefix) {
@@ -100,12 +105,20 @@ async function update_translations() {
     //var prefix_within_output = 0;
     var diff_list = compute_diff_for_arrays(text_typed_after_cursor_words, translation_after_words)
     var i = 0;
+    var idx_in_text = translation_before.length;
     for (var [diff_type, word_list] of diff_list) {
       if (diff_type == -1) {
         // deletion in diff
+        for (var word of word_list) {
+          idx_in_text += word.length;
+        }
         continue;
       }
       for (var word of word_list) {
+        var start_idx_in_text = idx_in_text;
+        if (diff_type === 0) {
+          idx_in_text += word.length;
+        }
         var word_block = document.createElement('span');
         word_block.setAttribute('display', 'inline-block')
         word_block.setAttribute('idx', i);
@@ -116,7 +129,9 @@ async function update_translations() {
         //if (i === 0) {
         //  word_block.style.backgroundColor = 'lightblue';
         //}
-        if (diff_type === 1) {
+        if (prefix_end_idx > start_idx_in_text) {
+          word_block.style.color = 'grey';
+        } else if (diff_type === 1) {
           word_block.style.backgroundColor = 'lightgreen';
         } else {
           word_block.style.color = 'grey';
